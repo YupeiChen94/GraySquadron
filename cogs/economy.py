@@ -966,7 +966,7 @@ class Economy(commands.Cog):
             user_input = await buy_reaction_waiter(self)
             await msg.clear_reactions()
             if user_input == '👁':
-                deck = Deck(self, ctx, ctx.author, [], [], card_codes, False)
+                deck = Deck(self, ctx, ctx.author, [], [], card_codes, False, 'rarity_code')
                 await deck.run()
 
     @buy.error
@@ -980,10 +980,17 @@ class Economy(commands.Cog):
     async def deck(self, ctx, *args):
         """Displays your collection of cards, or the one from another user.
 
-        You can use various arguments to filter the deck by affiliation and/or faction,
+        You can use various arguments to group and filter the deck by rarity, affiliation, faction of set
         and you can use the "missing" argument to see card you don't own.
         
         Arguments:
+        Group by:
+        - a, affiliation, affiliations: Group by affiliation, default is by Set
+        - f, faction, factions: Group by faction, default is by Set
+        - rar, rarity, rarities: Group by rarity, default is by Set
+        - nogroup, nogroups: Every cards in one list, no groups
+
+        Filters:
         - h, hero, heroes: Affiliation filter for hero cards
         - n, neutral, neutrals: Affiliation filter for neutral cards
         - v, villain, villains: Affiliation filter for villain cards
@@ -993,6 +1000,8 @@ class Economy(commands.Cog):
         - r, rare: Rarity filter for rare cards
         - l, legendary: Rarity filter for legendary cards
         - Card codes: One or multiple card numbers seperated by a space
+
+        Misc:
         - missing: Shows the cards you don't own, can be combined with filters
 
         Examples:
@@ -1021,12 +1030,18 @@ class Economy(commands.Cog):
         Shows all the cards you don't own
 
         - $deck missing v l
-        Shows all the villains legendary cards you don't own"""
+        Shows all the villains legendary cards you don't own
+
+        - $deck rar n
+        Shows all your neutral cards grouped by rarity
+
+        - $deck nogroup v l
+        Shows all your villains legendary cards in one list"""
         missing = False
         try:
             if 'missing' in args:
                 missing = True
-            user, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
+            user, _, group_by_key, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
         except ValueError as err:
             await ctx.send('{}\nType "$help deck" for more info.'.format(err))
 
@@ -1037,7 +1052,7 @@ class Economy(commands.Cog):
             if user is None:
                 user = ctx.author
 
-            user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing)
+            user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing, group_by_key)
             await user_deck.run()
 
     @commands.command(aliases=['deck_stat'])
@@ -1135,7 +1150,7 @@ class Economy(commands.Cog):
         Requests 01001 and 01002 from user"""
 
         try:
-            user, request_all, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, request_all, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help request_card" for more info.'.format(err))
             return
@@ -1199,8 +1214,8 @@ class Economy(commands.Cog):
 
             async def request_card_helper() -> str:
                 msg = None
-                affiliations_string = helper.join_with_and(affiliation_names, 'or')
-                rarities_string = helper.join_with_and([self.card_rarity_name_dict[rarity_code] for rarity_code in rarity_codes], 'or')
+                affiliations_string = helper.join_with_or(affiliation_names)
+                rarities_string = helper.join_with_or([self.card_rarity_name_dict[rarity_code] for rarity_code in rarity_codes])
                 if request_all:
                     msg = await user.send('{} is requesting all your cards ({} cards)'.format(ctx.author.display_name, total_card_quantity))
                 elif affiliation_names and rarity_codes:
@@ -1304,7 +1319,7 @@ class Economy(commands.Cog):
         Sends 01001 and 01002 to user"""
 
         try:
-            user, send_all, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, send_all, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help send_card deck" for more info.'.format(err))
             return
@@ -2052,8 +2067,9 @@ class Deck:
     deck_action_emoji_list = ['⏪', '◀', '⬆', '👁', '⬇', '▶', '⏩', '🛑']
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
+    group_by_key_name_dict = {'affiliation_name': 'Affiliation', 'faction_name': 'Faction', 'rarity_code': 'Rarity', 'set_code': 'Set'}
 
-    def __init__(self, economy, ctx, user: discord.Member, affiliation_names: list, rarity_codes: list, card_codes: list, missing: bool):
+    def __init__(self, economy, ctx, user: discord.Member, affiliation_names: list, rarity_codes: list, card_codes: list, missing: bool, group_by_key: str):
         self.empty = False  # If the users deck is completely empty
         self.is_card = False
 
@@ -2065,17 +2081,18 @@ class Deck:
         self.rarity_codes = rarity_codes
         self.card_codes = card_codes
         self.missing = missing
+        self.group_by_key = group_by_key
 
         self.user_deck_dict = {}  # gray.user_deck
         self.db_select_dict = {}  # gray.sw_card_db
-        self.set_list = []  # Alphabetically sorted set list
+        self.group_list = []  # Alphabetically sorted group list
 
-        self.current_set_idx = 0
-        self.current_set_dict = {}  # Dictionary that holds all cards of current set
-        self.current_set_name = None
-        self.current_set_code = None  # Code of current set
-        self.current_set_page_idx = 0  # Index of page of current set
-        self.current_set_max_page = 0  # Index of set in deck
+        self.current_group_idx = 0
+        self.current_group_dict = {}  # Dictionary that holds all cards of current group
+        self.current_group_name = None
+        self.current_group_code = None  # Code of current group
+        self.current_group_page_idx = 0  # Index of page of current group
+        self.current_group_max_page = 0  # Index of group in deck
         self.current_card_idx = 0  # Index of currently displayed card
         self.current_display_names = []  # 10 cards names currently being displayed
         self.current_display_code = []  # 10 cards codes currently being displayed
@@ -2131,27 +2148,45 @@ class Deck:
                     return
 
                 db_select_record = await connection.fetch(
-                    """SELECT set_code, code, * FROM gray.sw_card_db WHERE code = ANY($1::text[])""", card_list)
+                    """SELECT code, * FROM gray.sw_card_db WHERE code = ANY($1::text[]) ORDER BY code""", card_list)
                 self.db_select_dict = {}
                 for record in db_select_record:
-                    set_code = ''
+                    group_code = ''
+                    if self.group_by_key:
+                        group_code = record[self.group_by_key]
                     card_code = ''
                     for f, v in record.items():
-                        if f == 'set_code':
-                            set_code = v
+                        if f == group_code:
+                            pass
                         elif f == 'code':
                             card_code = v
                         else:
                             try:
-                                self.db_select_dict[set_code][card_code].update({f: v})
+                                self.db_select_dict[group_code][card_code].update({f: v})
                             except KeyError:
                                 try:
-                                    self.db_select_dict[set_code][card_code] = ({f: v})
+                                    self.db_select_dict[group_code][card_code] = ({f: v})
                                 except KeyError:
-                                    self.db_select_dict[set_code] = {card_code: {f: v}}
-        self.set_list = sorted(list(self.db_select_dict.keys()))
-        self.current_set_code = self.set_list[self.current_set_idx]
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
+                                    self.db_select_dict[group_code] = {card_code: {f: v}}
+
+        # Order the list
+        if self.group_by_key in ['affiliation_name', 'faction_name']:
+            # Alphabetically for affiliation and faction
+            self.group_list = sorted(list(self.db_select_dict.keys()))
+        elif self.group_by_key == 'set_code':
+            # By card code for sets
+            self.group_list = list(self.db_select_dict.keys())
+        elif self.group_by_key == 'rarity_code':
+            # By rarity S => C => U => R => L
+            for rarity_code in self.economy.card_rarity_list:
+                for group in self.db_select_dict.keys():
+                    if rarity_code == group:
+                        self.group_list += group
+        else:
+            self.group_list = list(self.db_select_dict.keys())
+
+        self.current_group_code = self.group_list[self.current_group_idx]
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
 
         # If there's only one card to show, show directly the card embed without reactions
         self.get_current_deck_info()
@@ -2160,19 +2195,26 @@ class Deck:
             self.sent_embed = await self.ctx.send(embed=await self.generate_card_embed())
         else:
             self.sent_embed = await self.ctx.send(embed=await self.generate_deck_embed())
-            for e in Deck.deck_action_emoji_list:
-                await self.sent_embed.add_reaction(e)
+            await self.deck_add_reactions()
 
     def get_current_deck_info(self):
-        keys = self.current_set_dict.keys()
-        self.current_set_max_page = math.ceil(len(list(self.current_set_dict.keys())) / 10)
-        self.current_set_name = self.current_set_dict[next(iter(self.current_set_dict))].get('set_name')
-        self.current_display_names = [self.current_set_dict.get(code).get('name') for idx, code in enumerate(keys) if
-                                      (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+        keys = self.current_group_dict.keys()
+        self.current_group_max_page = math.ceil(len(list(self.current_group_dict.keys())) / 10)
+        name_key = ''
+        if self.group_by_key in ['affiliation_name', 'faction_name']:
+            name_key = self.group_by_key            
+        elif self.group_by_key == 'set_code':
+            name_key = 'set_name'
+        elif self.group_by_key == 'rarity_code':
+            name_key = 'rarity_name'
+        if name_key:
+            self.current_group_name = self.current_group_dict[next(iter(self.current_group_dict))].get(name_key)
+        self.current_display_names = [self.current_group_dict.get(code).get('name') for idx, code in enumerate(keys) if
+                                      (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
         self.current_display_code = [code for idx, code in enumerate(keys) if
-                                     (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+                                     (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
         self.current_card_counts = [self.user_deck_dict.get(code).get('count') for idx, code in enumerate(keys) if
-                                    (10 * self.current_set_page_idx <= idx < 10 * (self.current_set_page_idx + 1))]
+                                    (10 * self.current_group_page_idx <= idx < 10 * (self.current_group_page_idx + 1))]
 
     async def generate_deck_embed(self) -> discord.Embed:
         """Generate embed that shows entire deck by set"""
@@ -2185,20 +2227,43 @@ class Deck:
                 current_i_display_names[idx] = f'{current_i_display_names[idx]} ({self.current_display_code[idx]})'
         card_names_string = '\n'.join(current_i_display_names)
 
-        embed = discord.Embed(title='Set', description=self.current_set_name, colour=self.ctx.author.colour)
-        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        embed = None
+        cards_title = 'Cards'
         if self.missing:
-            embed.add_field(name='Missing cards', value=card_names_string, inline=True)
+            cards_title = 'Missing cards'
+
+        filters = ''
+        filters_affiliations_string = helper.join_with_or(self.affiliation_names)
+        filters_rarities_string = helper.join_with_or([self.economy.card_rarity_name_dict[rarity_code] for rarity_code in self.rarity_codes])
+        if self.affiliation_names and self.rarity_codes:
+            filters = '{} and {}'.format(filters_rarities_string, filters_affiliations_string)
+        elif self.affiliation_names:
+            filters = filters_affiliations_string
+        elif self.rarity_codes:
+            filters = filters_rarities_string
+
+        if self.group_by_key:
+            title_name = Deck.group_by_key_name_dict[self.group_by_key]
+            embed = discord.Embed(title=title_name, description=self.current_group_name, colour=self.ctx.author.colour)
+            embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+            if filters:
+                embed.add_field(name='Filters', value=filters, inline=False)    
+            embed.add_field(name=cards_title, value=card_names_string, inline=False)
+            embed.set_footer(
+                text=f'Page {self.current_group_page_idx + 1}/{self.current_group_max_page} of {title_name} {self.current_group_idx + 1}/{len(self.group_list)}')
         else:
-            embed.add_field(name='Cards', value=card_names_string, inline=True)
-        embed.set_footer(
-            text=f'Page {self.current_set_page_idx + 1}/{self.current_set_max_page} of Set {self.current_set_idx + 1}/{len(self.set_list)}')
+            embed = discord.Embed(colour=self.ctx.author.colour, inline=False)
+            embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+            if filters:
+                embed.add_field(name='Filters', value=filters, inline=False)    
+            embed.add_field(name=cards_title, value=card_names_string, inline=False)
+            embed.set_footer(text=f'Page {self.current_group_page_idx + 1}/{self.current_group_max_page}')
         return embed
 
     async def generate_card_embed(self) -> discord.Embed:
         """Generate embed that shows specific card"""
         current_card_code = self.current_display_code[self.current_card_idx]
-        current_card_dict = self.current_set_dict.get(current_card_code)
+        current_card_dict = self.current_group_dict.get(current_card_code)
         first_acquired = self.user_deck_dict.get(current_card_code).get('first_acquired')
         rarity_name = f"{current_card_dict.get('rarity_name')}"
         rarity_bonus = Deck.card_bonus_dict.get(current_card_dict.get('rarity_code'))
@@ -2226,6 +2291,12 @@ class Deck:
                 text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
         return embed
 
+    async def deck_add_reactions(self):
+        for e in Deck.deck_action_emoji_list:
+            # Only show these buttons if there are more than one group
+            if len(self.group_list) > 1 or str(e) not in ['⏪', '⏩']:
+                await self.sent_embed.add_reaction(e)
+
     async def deck_reaction_waiter(self) -> str:
         """Async helper to await for reactions"""
 
@@ -2243,34 +2314,34 @@ class Deck:
         return str(reaction.emoji)
 
     def previous_set(self):
-        if self.current_set_idx == 0:
-            self.current_set_idx = len(self.set_list)
-        self.current_set_idx -= 1
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.current_set_page_idx = 0
+        if self.current_group_idx == 0:
+            self.current_group_idx = len(self.group_list)
+        self.current_group_idx -= 1
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
+        self.current_group_page_idx = 0
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def next_set(self):
-        if self.current_set_idx == len(self.set_list) - 1:
-            self.current_set_idx = -1
-        self.current_set_idx += 1
-        self.current_set_dict = self.db_select_dict.get(self.set_list[self.current_set_idx])
-        self.current_set_page_idx = 0
+        if self.current_group_idx == len(self.group_list) - 1:
+            self.current_group_idx = -1
+        self.current_group_idx += 1
+        self.current_group_dict = self.db_select_dict.get(self.group_list[self.current_group_idx])
+        self.current_group_page_idx = 0
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def previous_page(self):
-        if self.current_set_page_idx == 0:
-            self.current_set_page_idx = self.current_set_max_page
-        self.current_set_page_idx -= 1
+        if self.current_group_page_idx == 0:
+            self.current_group_page_idx = self.current_group_max_page
+        self.current_group_page_idx -= 1
         self.current_card_idx = 0
         self.get_current_deck_info()
 
     def next_page(self):
-        if self.current_set_page_idx == self.current_set_max_page - 1:
-            self.current_set_page_idx = -1
-        self.current_set_page_idx += 1
+        if self.current_group_page_idx == self.current_group_max_page - 1:
+            self.current_group_page_idx = -1
+        self.current_group_page_idx += 1
         self.current_card_idx = 0
         self.get_current_deck_info()
 
@@ -2329,14 +2400,13 @@ class Deck:
             elif user_input == Deck.card_action_emoji_list[0]:
                 await self.sent_embed.clear_reactions()
                 await self.sent_embed.edit(embed=await self.generate_deck_embed())
-                for e in Deck.deck_action_emoji_list:
-                    await self.sent_embed.add_reaction(e)
+                await self.deck_add_reactions()
                 self.is_card = False
             # Previous Card
             elif user_input == Deck.card_action_emoji_list[1] and self.is_card:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 if self.current_card_idx == 0:
-                    if self.current_set_page_idx == 0:
+                    if self.current_group_page_idx == 0:
                         self.previous_set()
                         self.previous_page()
                         self.up_page()
@@ -2350,7 +2420,7 @@ class Deck:
             elif user_input == Deck.card_action_emoji_list[2] and self.is_card:
                 await self.sent_embed.remove_reaction(user_input, self.author)
                 if self.current_card_idx == len(self.current_display_names) - 1:
-                    if self.current_set_page_idx == self.current_set_max_page - 1:
+                    if self.current_group_page_idx == self.current_group_max_page - 1:
                         self.next_set()
                     else:
                         self.next_page()

@@ -79,6 +79,10 @@ def join_with_and(values, last_word: str = 'and') -> str:
     # Empty
     return ''
 
+def join_with_or(values) -> str:
+    """Same as ', '.join() but with ' and ' between the last 2 values"""
+    return join_with_and(values, 'or')
+
 def is_valid_card_number_format(s: str) -> bool:
     # Between 5 and 7 digits, can have a letter at the end
     length = len(s)
@@ -96,10 +100,11 @@ def is_valid_card_number_format(s: str) -> bool:
     else:
         return False
 
-async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool, list, list, list):
+async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool, str, list, list, list):
     """Parses the args looking for Discord user, "all", affiliation, rarity and card codes"""
     user = None
     has_all = False
+    group_by_key = 'set_code'
     affiliation_names = []
     rarity_codes = []
     card_codes = []
@@ -115,6 +120,14 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
             argLowerCase = arg.lower()
             if argLowerCase == 'all':
                 has_all = True
+            elif argLowerCase in ['a', 'affiliation', 'affiliations']:
+                group_by_key = 'affiliation_name'
+            elif argLowerCase in ['f', 'faction', 'factions']:
+                group_by_key = 'faction_name'
+            elif argLowerCase in ['rar', 'rarity']:
+                group_by_key = 'rarity_code'
+            elif argLowerCase in ['nogroup', 'nogroups']:
+                group_by_key = ''
             elif argLowerCase in ['v', 'villain', 'villains']:
                 affiliation_names.append('Villain')
             elif argLowerCase in ['h', 'hero', 'heroes']:
@@ -141,7 +154,7 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
     elif has_all and (affiliation_names or rarity_codes):
         raise ValueError('Invalid arguments. Use either \"all\" or affiliation/rarity name but not both.')
 
-    return user, has_all, affiliation_names, rarity_codes, card_codes
+    return user, has_all, group_by_key, affiliation_names, rarity_codes, card_codes
 
 def parse_amount(amount: str) -> int:
     """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
