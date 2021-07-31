@@ -2018,6 +2018,7 @@ class Shop:
                                                          item_code,
                                                          helper.credits_to_string(item_dict.get('cost'))), 
                             value='{}'.format(item_name), inline=False)
+        embed.add_field(name='Wallet', value=helper.credits_to_string(await self.economy.get_credits(self.author.id)))
         _, time_left = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK')
         _, time_left_minor = await self.economy.check_cd(self.economy.bot_discord_uid, 'RESTOCK_MINOR')
         major_text = 'Restocking' if time_left < datetime.timedelta(0) else str(time_left).split('.')[0]
