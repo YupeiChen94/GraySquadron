@@ -859,6 +859,7 @@ class Economy(commands.Cog):
             item_code_list.append(item_command)
 
         messages = []
+        card_codes = []
         for item_code in item_code_list:
             # Validate user quantity is a positive number
             if quantity < 1:
@@ -896,10 +897,10 @@ class Economy(commands.Cog):
                 if quantity == 0:
                     if quantity_bought == 0:
                         await ctx.send('Sorry, you do not have enough credits for this purchase!')
+                        return
                     else:
-                        await ctx.send('{}\n{}'.format('\n'.join(messages), 
-                            f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.'))
-                    return
+                        messages.append(f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.')
+                        break
                 total_cost = item_cost * quantity
 
             _, _, tax_rate = self.credits_tier(user_credit_total)
@@ -912,6 +913,7 @@ class Economy(commands.Cog):
                     cards_list, names_list = await self.open_cardpack(item_code, quantity)
                     for card_code in cards_list:
                         await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
+                        card_codes.append(card_code)
 
                     item_name = ''
                     if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
@@ -936,11 +938,36 @@ class Economy(commands.Cog):
                 # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
                 # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
                 # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
-        if quantity_bought > 0:
-            messages.append('Transaction successful! For more details about cards, use \"$deck <card_code(s)>\".')
+        if quantity_bought == 1:
+            messages.append('Transaction successful! To see your new card, click "👁".')
+        elif quantity_bought > 1:
+            messages.append('Transaction successful! To see your new cards, type \"$deck <card_code(s)>\" or click "👁".')
         else:
             messages.append('Nothing to buy!')
-        await ctx.send('\n'.join(messages))
+        msg = await ctx.send('\n'.join(messages))
+
+        if quantity_bought > 0:
+            await msg.add_reaction('👁')
+
+            async def buy_reaction_waiter(self) -> str:
+                """Async helper to await for reactions"""
+
+                def check(r, u):
+                    # R = Reaction, U = User
+                    return u == ctx.author \
+                           and str(r.emoji) == '👁' \
+                           and r.message.id == msg.id
+                try:
+                    reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
+                except asyncio.TimeoutError:
+                    return 'Timeout'
+                return str(reaction.emoji)
+
+            user_input = await buy_reaction_waiter(self)
+            await msg.clear_reactions()
+            if user_input == '👁':
+                deck = Deck(self, ctx, ctx.author, [], [], card_codes, False)
+                await deck.run()
 
     @buy.error
     async def buy_error(self, ctx, error):
