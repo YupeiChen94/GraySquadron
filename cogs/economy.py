@@ -1171,17 +1171,30 @@ class Economy(commands.Cog):
 
             async def request_card_helper() -> str:
                 msg = None
+                affiliations_string = helper.join_with_and(affiliation_names, 'or')
+                rarities_string = helper.join_with_and([self.card_rarity_name_dict[rarity_code] for rarity_code in rarity_codes], 'or')
                 if request_all:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards ({} cards)'.format(ctx.author.display_name, total_card_quantity))
                 elif affiliation_names and rarity_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_names} cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards from rarity {} and affiliation {} ({} cards)'
+                        .format(ctx.author.display_name, 
+                            rarities_string,
+                            affiliations_string,
+                            total_card_quantity))
                 elif affiliation_names:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_names} cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards from affiliation {} ({} cards)'
+                        .format(ctx.author.display_name,
+                            affiliations_string,
+                            total_card_quantity))
                 elif rarity_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {rarity_codes} cards ({total_card_quantity} cards)')
+                    msg = await user.send('{} is requesting all your cards from rarity {} ({} cards)'
+                        .format(ctx.author.display_name,
+                            rarities_string,
+                            total_card_quantity))
                 elif card_codes:
-                    msg = await user.send('{} is requesting card(s): {}'.format(ctx.author.display_name, helper.join_with_and('{} ({}{})'.format(
-                        card['name'], 
+                    msg = await user.send('{} is requesting card(s): {}'
+                        .format(ctx.author.display_name, 
+                            helper.join_with_and('{} ({}{})'.format(card['name'], 
                         '{}x '.format(card_codes.count(card['code'])) if card_codes.count(card['code']) > 1 else '', 
                         card['code']) for card in cards_records)))
                 for emoji in trade_emojis:
