@@ -1921,8 +1921,9 @@ class Shop:
         self.category_index = self.shop_category_list.index(self.selected_shop_category)
         self.selected_shop_dict = self.shop_dict.get(self.selected_shop_category)
         self.sent_embed = await self.ctx.send(embed=await self.generate_shop_embed())
-        for e in Shop.action_emoji_list:
-            await self.sent_embed.add_reaction(e)
+        if self.categories_max > 1:
+            for e in Shop.action_emoji_list:
+                await self.sent_embed.add_reaction(e)
 
     async def next_category(self, distance: int = 1):
         for _ in range(0, distance):
