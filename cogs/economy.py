@@ -2473,11 +2473,11 @@ class EconomyLB(menus.ListPageSource):
             elif idx == 3:
                 return '🥉'
             else:
-                return '{}'.format(idx)
+                return '{}.'.format(idx)
 
         offset = (menu.current_page * self.per_page) + 1
         fields = []
-        table = "\n".join(f"{get_rank(idx+offset)}. {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
+        table = "\n".join(f"{get_rank(idx+offset)} {self.ctx.guild.get_member(entry[0]).display_name} - {helper.credits_to_string(entry[1])}" for idx, entry in enumerate(entries))
         fields.append(("Rank", table))
         return await self.write_page(offset, fields)
 
