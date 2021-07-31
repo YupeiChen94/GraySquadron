@@ -164,6 +164,7 @@ def parse_amount(amount: str) -> int:
         return int(float(amount[:len(amount)-1])*10**exp)
 
 def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
+    """Returns "XXX'XXX" C if under a million, otherwise "XXX MC" """
     letter = ''
     divider = 1
     absAmount = abs(amount)
@@ -191,3 +192,10 @@ def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
         return '{1:.{0}f} {2}C'.format(precision,
             math.floor(amount / 10**(power_of_10 - significant_numbers + 1)) / 10**precision, 
             letter)
+
+def credits_to_string_with_exact_value(amount: int, separator: str = ' ', significant_numbers: int = 3) -> str:
+    """Returns "XXX'XXX" C if under a million, otherwise "XXX MC (XXX'XXX'XXX C)" """
+    if amount >= 10**6:
+        return '{}{}({:,} C)'.format(credits_to_string(amount), separator, amount)
+    else:
+        return '{:,} C'.format(amount)
