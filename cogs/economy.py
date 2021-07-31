@@ -1088,8 +1088,8 @@ class Economy(commands.Cog):
 
                 embed = discord.Embed(title='Deck Stats', description='')
                 embed.set_author(name=user.display_name, icon_url=user.avatar_url)
-                embed.add_field(name='Total cards', value=total_cards)
-                embed.add_field(name='Completion', value='{}/{}'.format(unique_cards, self.card_count))
+                embed.add_field(name='Total', value='{} cards'.format(total_cards), inline=False)
+                embed.add_field(name='Completion', value='{:.1f}% ({}/{})'.format(unique_cards / self.card_count * 100, unique_cards, self.card_count), inline=False)
                 embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
                 embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
                                                            'Neutrals: {} ({}/{})\n'
