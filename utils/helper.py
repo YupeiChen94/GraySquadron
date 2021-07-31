@@ -1,5 +1,6 @@
 import json
 import discord
+import math
 
 
 def get_config(key):
@@ -162,10 +163,11 @@ def parse_amount(amount: str) -> int:
     else:
         return int(float(amount[:len(amount)-1])*10**exp)
 
-def credits_to_string(amount: int) -> str:
+def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
     letter = ''
     divider = 1
     absAmount = abs(amount)
+
     if absAmount >= 10**15:
         letter = 'Q'
         divider = 10**15
@@ -184,4 +186,8 @@ def credits_to_string(amount: int) -> str:
     if amount >= 10**18:
         return '{:,} {}C'.format(int(amount / divider), letter)
     else:
-        return '{:.3g} {}C'.format(amount / divider, letter)
+        power_of_10 = max(0,int(math.floor(math.log10(absAmount))))
+        precision = significant_numbers - 1 - (power_of_10 % 3)
+        return '{1:.{0}f} {2}C'.format(precision,
+            math.floor(amount / 10**(power_of_10 - significant_numbers + 1)) / 10**precision, 
+            letter)
