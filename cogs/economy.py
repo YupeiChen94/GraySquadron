@@ -27,7 +27,6 @@ class Economy(commands.Cog):
 
         # SW Card DB
         self.affiliation_list = ['Villain', 'Neutral', 'Hero']
-        self.affiliation_codes_list = ['villain', 'neutral', 'hero']
         self.faction_list = ['Command', 'Force', 'Rogue', 'General']
         self.set_list = ['Legacies', 'Redemption', 'Spirit of Rebellion']
         self.card_rate_list = [0.45, 0.4, 0.14, 0.0099, 0.0001]
@@ -40,7 +39,7 @@ class Economy(commands.Cog):
 
         # Hardcoded stats about the card's deck to avoid unneeded SQL requests. To update if new cards are added
         self.card_count = 1889
-        self.card_affiliation_count = {'hero': 615, 'neutral': 663, 'villain': 611}
+        self.card_affiliation_count = {'Hero': 615, 'Neutral': 663, 'Villain': 611}
         self.card_rarity_count = {'S': 449, 'C': 513, 'U': 387, 'R': 387, 'L': 153}
         
         self.current_affiliation = random.choice(self.affiliation_list)
@@ -999,7 +998,7 @@ class Economy(commands.Cog):
         try:
             if 'missing' in args:
                 missing = True
-            user, _, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
+            user, _, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, [arg for arg in args if arg != 'missing'])
         except ValueError as err:
             await ctx.send('{}\nType "$help deck" for more info.'.format(err))
 
@@ -1010,7 +1009,7 @@ class Economy(commands.Cog):
             if user is None:
                 user = ctx.author
 
-            user_deck = Deck(self, ctx, user, affiliation_codes, rarity_codes, card_codes, missing)
+            user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing)
             await user_deck.run()
 
     @commands.command(aliases=['deck_stat'])
@@ -1022,7 +1021,7 @@ class Economy(commands.Cog):
         async with self.client.pool.acquire() as connection:
             async with connection.transaction():
                 user_deck_record = await connection.fetch(
-                    """SELECT deck.code, deck.count, cards_db.affiliation_code, cards_db.rarity_code FROM gray.user_deck AS deck 
+                    """SELECT deck.code, deck.count, cards_db.affiliation_name, cards_db.rarity_code FROM gray.user_deck AS deck 
                     INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                     WHERE deck.discord_uid = $1 AND deck.count > 0""",
                     user.id)
@@ -1032,16 +1031,16 @@ class Economy(commands.Cog):
                 deck_value = 0
                 total_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
                 unique_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
-                total_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
-                unique_affiliation_dict = {'villain': 0, 'neutral': 0, 'hero': 0}
+                total_affiliation_dict = {'Villain': 0, 'Neutral': 0, 'Hero': 0}
+                unique_affiliation_dict = {'Villain': 0, 'Neutral': 0, 'Hero': 0}
 
                 for card in user_deck_record:
                     total_cards += card['count']
                     unique_cards += 1
                     total_rarity_dict[card['rarity_code']] += card['count']
                     unique_rarity_dict[card['rarity_code']] += 1
-                    total_affiliation_dict[card['affiliation_code']] += card['count']
-                    unique_affiliation_dict[card['affiliation_code']] += 1
+                    total_affiliation_dict[card['affiliation_name']] += card['count']
+                    unique_affiliation_dict[card['affiliation_name']] += 1
                     deck_value += self.card_rarity_value[card['rarity_code']] * card['count']
 
                 embed = discord.Embed(title='Deck Stats', description='')
@@ -1052,9 +1051,9 @@ class Economy(commands.Cog):
                 embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
                                                            'Neutrals: {} ({}/{})\n'
                                                            'Villains: {} ({}/{})\n'
-                    .format(total_affiliation_dict['hero'], unique_affiliation_dict['hero'], self.card_affiliation_count['hero'],
-                    total_affiliation_dict['neutral'], unique_affiliation_dict['neutral'], self.card_affiliation_count['neutral'],
-                    total_affiliation_dict['villain'], unique_affiliation_dict['villain'], self.card_affiliation_count['villain']), inline=False)
+                    .format(total_affiliation_dict['Hero'], unique_affiliation_dict['Hero'], self.card_affiliation_count['Hero'],
+                    total_affiliation_dict['Neutral'], unique_affiliation_dict['Neutral'], self.card_affiliation_count['Neutral'],
+                    total_affiliation_dict['Villain'], unique_affiliation_dict['Villain'], self.card_affiliation_count['Villain']), inline=False)
                 embed.add_field(name='Rarity', value='Starters: {} ({}/{})\n'
                                                      'Common: {} ({}/{})\n'
                                                      'Uncommon: {} ({}/{})\n'
@@ -1108,14 +1107,14 @@ class Economy(commands.Cog):
         Requests 01001 and 01002 from user"""
 
         try:
-            user, request_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, request_all, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help request_card" for more info.'.format(err))
             return
         if user is None:
             await ctx.send('Invalid arguments. You must specify a user.\nType "$help request_card" for more info.')
             return
-        elif not (request_all or affiliation_codes or rarity_codes or card_codes):
+        elif not (request_all or affiliation_names or rarity_codes or card_codes):
             await ctx.send('Invalid arguments. You must specify something to request.\nType "$help request_card" for more info.')
             return
 
@@ -1133,9 +1132,9 @@ class Economy(commands.Cog):
                             """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
                             INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                             WHERE deck.discord_uid = $1 AND count > 0 AND 
-                            cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                            cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                             user.id,
-                            affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                            affiliation_names if affiliation_names else self.affiliation_list, 
                             rarity_codes if rarity_codes else self.card_rarity_list)
 
         cards_records = await fetch_cards_records()
@@ -1174,10 +1173,10 @@ class Economy(commands.Cog):
                 msg = None
                 if request_all:
                     msg = await user.send(f'{ctx.author.display_name} is requesting all your cards ({total_card_quantity} cards)')
-                elif affiliation_codes and rarity_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_codes} cards ({total_card_quantity} cards)')
-                elif affiliation_codes:
-                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_codes} cards ({total_card_quantity} cards)')
+                elif affiliation_names and rarity_codes:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {self.card_rarity_name_dict[rarity_codes].lower()} {affiliation_names} cards ({total_card_quantity} cards)')
+                elif affiliation_names:
+                    msg = await user.send(f'{ctx.author.display_name} is requesting all your {affiliation_names} cards ({total_card_quantity} cards)')
                 elif rarity_codes:
                     msg = await user.send(f'{ctx.author.display_name} is requesting all your {rarity_codes} cards ({total_card_quantity} cards)')
                 elif card_codes:
@@ -1264,7 +1263,7 @@ class Economy(commands.Cog):
         Sends 01001 and 01002 to user"""
 
         try:
-            user, send_all, affiliation_codes, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
+            user, send_all, affiliation_names, rarity_codes, card_codes = await helper.parse_input_args_filters(ctx, commands, args)
         except ValueError as err:
             await ctx.send('{}\nType "$help send_card deck" for more info.'.format(err))
             return
@@ -1286,9 +1285,9 @@ class Economy(commands.Cog):
                         """SELECT deck.code, cards_db.name, deck.count FROM gray.user_deck AS deck 
                         INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                         WHERE deck.discord_uid = $1 AND count > 0 AND 
-                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                         ctx.author.id, 
-                        affiliation_codes if affiliation_codes else self.affiliation_codes_list, 
+                        affiliation_names if affiliation_names else self.affiliation_list, 
                         rarity_codes if rarity_codes else self.card_rarity_list)
 
                 if not cards_records:
@@ -2012,7 +2011,7 @@ class Deck:
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
     card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
-    def __init__(self, economy, ctx, user: discord.Member, affiliation_codes: list, rarity_codes: list, card_codes: list, missing: bool):
+    def __init__(self, economy, ctx, user: discord.Member, affiliation_names: list, rarity_codes: list, card_codes: list, missing: bool):
         self.empty = False  # If the users deck is completely empty
         self.is_card = False
 
@@ -2020,7 +2019,7 @@ class Deck:
         self.ctx = ctx
         self.author = ctx.author
         self.target = user
-        self.affiliation_codes = affiliation_codes
+        self.affiliation_names = affiliation_names
         self.rarity_codes = rarity_codes
         self.card_codes = card_codes
         self.missing = missing
@@ -2058,17 +2057,17 @@ class Deck:
                         """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
                         INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
                         WHERE deck.discord_uid = $1 AND deck.count > 0 AND 
-                        cards_db.affiliation_code = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
+                        cards_db.affiliation_name = ANY($2::text[]) AND cards_db.rarity_code = ANY($3::text[])""",
                         self.target.id, 
-                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
                         self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list)
 
                 # Get the card codes you don't have
                 if self.missing:
                     user_deck_record = await connection.fetch(
                         """SELECT code FROM gray.sw_card_db 
-                        WHERE affiliation_code = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
-                        self.affiliation_codes if self.affiliation_codes else self.economy.affiliation_codes_list, 
+                        WHERE affiliation_name = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
+                        self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
                         self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
                         [card['code'] for card in user_deck_record])
 

@@ -99,7 +99,7 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
     """Parses the args looking for Discord user, "all", affiliation, rarity and card codes"""
     user = None
     has_all = False
-    affiliation_codes = []
+    affiliation_names = []
     rarity_codes = []
     card_codes = []
 
@@ -115,11 +115,11 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
             if argLowerCase == 'all':
                 has_all = True
             elif argLowerCase in ['v', 'villain', 'villains']:
-                affiliation_codes.append('villain')
+                affiliation_names.append('Villain')
             elif argLowerCase in ['h', 'hero', 'heroes']:
-                affiliation_codes.append('hero')
+                affiliation_names.append('Hero')
             elif argLowerCase in ['n', 'neutral', 'neutrals']:
-                affiliation_codes.append('neutral')
+                affiliation_names.append('Neutral')
             elif argLowerCase in ['s', 'starter', 'starters']:
                 rarity_codes.append('S')
             elif argLowerCase in ['c', 'common']:
@@ -135,12 +135,12 @@ async def parse_input_args_filters(ctx, commands, args) -> (discord.Member, bool
             else:
                 raise ValueError('Invalid argument: {}'.format(arg))
 
-    if card_codes and (has_all or affiliation_codes or rarity_codes):
+    if card_codes and (has_all or affiliation_names or rarity_codes):
         raise ValueError('Invalid arguments. You can\'t mix card numbers and batch.')
-    elif has_all and (affiliation_codes or rarity_codes):
+    elif has_all and (affiliation_names or rarity_codes):
         raise ValueError('Invalid arguments. Use either \"all\" or affiliation/rarity name but not both.')
 
-    return user, has_all, affiliation_codes, rarity_codes, card_codes
+    return user, has_all, affiliation_names, rarity_codes, card_codes
 
 def parse_amount(amount: str) -> int:
     """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
