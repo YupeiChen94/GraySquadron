@@ -297,7 +297,7 @@ class Economy(commands.Cog):
             bracket = 'silver5'
         elif credits_total < 24_414_062_500:
             bracket = 'silver6'
-        elif credits_total < 122_070_312_500:
+        else:
             bracket = 'silver7'
         img_link = coin_tier.get(bracket)[0]
         tax_rate = coin_tier.get(bracket)[1]
