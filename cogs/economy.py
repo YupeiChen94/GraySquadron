@@ -415,7 +415,7 @@ class Economy(commands.Cog):
         await self.change_credits(user.id, count)
 
     @commands.command()
-    @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
+    @commands.cooldown(rate=1, per=5, type=commands.BucketType.user)
     async def transfer(self, ctx, member: discord.Member, amount: str, *, reason: str = None):
         """Transfer credits to another user.
         Examples: 
@@ -438,7 +438,7 @@ class Economy(commands.Cog):
                     _, _, tax_rate = self.credits_tier(giver_total)
                     give_count = math.ceil(count * (1 - tax_rate)) - 5
                     tax_count = count - give_count
-                    message = f'{ctx.author.mention} have gifted {member.mention} {helper.credits_to_string(count)}! '
+                    message = f'{ctx.author.mention} has gifted {member.mention} {helper.credits_to_string_with_exact_value(count)}! '
                     if reason is not None:
                         message += f'\nMemo: {reason}'
                     message += f'\n{helper.credits_to_string(tax_count)} were withheld for handling fees.'
@@ -447,16 +447,16 @@ class Economy(commands.Cog):
                     await self.change_credits(taker, give_count)
                     await self.change_credits(self.bot_discord_uid, tax_count)
                 else:
-                    await ctx.send(f'You only have {giver_total} credits!')
+                    await ctx.send(f'Transfer failed. You only have {helper.credits_to_string_with_exact_value(giver_total)}!')
             else:
                 await ctx.send(f'The flat transaction fee is 5 C!', delete_after=10)
 
     @transfer.error
     async def transfer_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send('How many credits are you transferring?', delete_after=10)
+            await ctx.send('Please specify the amount to transfer.\nType "$help transfer" for more info.', delete_after=10)
         elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send('You are limited to 1 transfer per 30 seconds!', delete_after=5)
+            await ctx.send('You are limited to 1 transfer per 5 seconds!', delete_after=5)
         else:
             print(error)
 
