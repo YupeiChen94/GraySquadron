@@ -13,6 +13,7 @@ from utils import helper
 
 
 class Economy(commands.Cog):
+    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, client):
         self.client = client
@@ -22,6 +23,7 @@ class Economy(commands.Cog):
 
         self.credit_msg_reward = 100
         self.lotto_cost = 5
+        
 
         self.bot_discord_uid = helper.get_config('bot_discord_uid')
 
@@ -188,16 +190,15 @@ class Economy(commands.Cog):
                                             UPDATE SET count = user_deck.count + $3""",
                                              discord_uid, item_code, quantity, current_time)
 
-    async def open_cardpack(self, item_code: str, quantity: int) -> (list, list):
+    async def open_cardpack(self, item_code: str, quantity: int) -> (list, str):
         """Open random cardpacks"""
 
-        async def get_cards(f_base_string, f_rarity, f_quantity) -> (list, list):
+        async def get_cards(f_base_string, f_rarity, f_quantity):
             async with self.client.pool.acquire() as f_connection:
                 async with f_connection.transaction():
-                    cards_record = await f_connection.fetch(f_base_string, f_rarity, f_quantity)
-            return [code[0] for code in cards_record], [code[1] for code in cards_record]
+                    return await f_connection.fetch(f_base_string, f_rarity, f_quantity)
 
-        base_string = """SELECT code, name  FROM gray.sw_card_db WHERE rarity_code = $1"""
+        base_string = """SELECT code, name, affiliation_name FROM gray.sw_card_db WHERE rarity_code = $1"""
         rarity = ''
         if item_code in self.item_code_card_rarity_dict.keys():
             rarity = self.item_code_card_rarity_dict.get(item_code)
@@ -221,18 +222,18 @@ class Economy(commands.Cog):
             base_string += f" AND {col_name} = '{col_value}'"
         base_string += ' ORDER BY RANDOM() LIMIT $2'
 
-        card_codes, card_names = await get_cards(base_string, rarity, quantity)
+        card_records = await get_cards(base_string, rarity, quantity)
 
         # If not enough cards, try all the rarity from S to L until we have enough cards
-        if len(card_codes) != quantity:
+        if len(card_records) != quantity:
             for new_rarity in self.card_rarity_list:
-                new_card_codes, new_card_names = await get_cards(base_string, new_rarity, quantity - len(card_codes))
-                card_codes.extend(new_card_codes)
-                card_names.extend(new_card_names)
-                if len(card_codes) == quantity:
+                new_card_records = await get_cards(base_string, new_rarity, quantity - len(card_records))
+                rarity = new_rarity
+                card_records.extend(new_card_records)
+                if len(card_records) == quantity:
                     break;
 
-        return card_codes, card_names
+        return card_records, rarity
 
     @staticmethod
     def credits_tier(credits_total: int):
@@ -860,6 +861,8 @@ class Economy(commands.Cog):
 
         messages = []
         card_codes = []
+        purchase_dict = {}
+        bonus_dict = {'Hero': 0, 'Neutral': 0, 'Villain': 0}
         for item_code in item_code_list:
             # Validate user quantity is a positive number
             if quantity < 1:
@@ -899,7 +902,6 @@ class Economy(commands.Cog):
                         await ctx.send('Sorry, you do not have enough credits for this purchase!')
                         return
                     else:
-                        messages.append(f'You have bought {quantity_bought} card(s) but you do not have enough credits to buy all the cards requested.')
                         break
                 total_cost = item_cost * quantity
 
@@ -910,10 +912,11 @@ class Economy(commands.Cog):
                 await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
                 item_category, item_subcategory = await self.get_item_category(item_code)
                 if item_category == 'deck':
-                    cards_list, names_list = await self.open_cardpack(item_code, quantity)
-                    for card_code in cards_list:
-                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card_code, 1)
-                        card_codes.append(card_code)
+                    card_records, rarity = await self.open_cardpack(item_code, quantity)
+                    for card in card_records:
+                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card['code'], 1)
+                        card_codes.append(card['code'])
+                        bonus_dict[card['affiliation_name']] += Economy.card_bonus_dict.get(rarity)
 
                     item_name = ''
                     if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
@@ -925,7 +928,8 @@ class Economy(commands.Cog):
                     elif item_code == 'cps':
                         item_name = self.current_set
 
-                    messages.append('{} cards revealed:\n- {}'.format(item_name, helper.join_with_and('{} ({})'.format(name, code) for code, name in zip(cards_list, names_list))))
+                    purchase_dict[item_code] = {'count': quantity, 'rarity_code': rarity, 'item_cost': item_cost}
+
             except Exception as e:
                 print(e)
                 return
@@ -938,16 +942,49 @@ class Economy(commands.Cog):
                 # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
                 # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
                 # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
-        if quantity_bought == 1:
-            messages.append('Transaction successful! To see your new card, click "👁".')
-        elif quantity_bought > 1:
-            messages.append('Transaction successful! To see your new cards, type \"$deck <card_code(s)>\" or click "👁".')
+
+        embed = None
+        if quantity_bought > 0:
+            async with self.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    emoji_record = await connection.fetch("SELECT item_code, emoji FROM gray.shop_items ORDER BY item_idx ASC")
+            items_list_string = ''
+            emoji_dict = helper.record_to_dict(emoji_record, 'item_code')
+
+            total_cost = 0  
+            total_value = 0          
+            for item in purchase_dict:
+                total_cost += purchase_dict.get(item).get('count') * purchase_dict.get(item).get('item_cost')
+                total_value += purchase_dict.get(item).get('count') * self.card_rarity_value.get(purchase_dict.get(item).get('rarity_code'))
+
+            bonus_strings = []
+            for bonus in bonus_dict:
+                if bonus_dict.get(bonus) > 0:
+                    bonus_strings += ['+{:.2f}x on {} slots.'.format(bonus_dict.get(bonus) / 100, bonus)]
+
+            embed = discord.Embed(title='Thanks for your purchase!', description='You have bought {} {}.'.format(quantity_bought, 'cards' if quantity_bought != 1 else 'card'), 
+                colour=ctx.author.colour, inline=False)
+            embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar_url)
+            for item in purchase_dict:
+                item_cost = purchase_dict.get(item).get('item_cost')
+                count = purchase_dict.get(item).get('count')
+                embed.add_field(name='{} {}x {} ({})'.format(emoji_dict.get(item).get('emoji'), 
+                                                         count,
+                                                         item,
+                                                         helper.credits_to_string(item_cost)), 
+                            value='{}'.format(helper.credits_to_string(count * item_cost)), inline=False)
+            embed.add_field(name='Total cost', value=helper.credits_to_string(total_cost), inline=True)
+            embed.add_field(name='Value', value=helper.credits_to_string(total_value), inline=True)
+            embed.add_field(name='Wallet', value=helper.credits_to_string(await self.get_credits(ctx.author.id)), inline=True)
+            embed.add_field(name='Bonus', value='\n'.join(bonus_strings), inline=False)
+            embed.set_footer(text='Hint: Click "👁" to see your new {}.'.format('cards' if quantity_bought != 1 else 'card'))
         else:
-            messages.append('Nothing to buy!')
-        msg = await ctx.send('\n'.join(messages))
+            await ctx.send('Nothing to buy!')
+            return
 
         if quantity_bought > 0:
-            await msg.add_reaction('👁')
+            sent_embed = await ctx.send(embed=embed)
+            await sent_embed.add_reaction('👁')
 
             async def buy_reaction_waiter(self) -> str:
                 """Async helper to await for reactions"""
@@ -956,7 +993,7 @@ class Economy(commands.Cog):
                     # R = Reaction, U = User
                     return u == ctx.author \
                            and str(r.emoji) == '👁' \
-                           and r.message.id == msg.id
+                           and r.message.id == sent_embed.id
                 try:
                     reaction, _ = await self.client.wait_for('reaction_add', check=check, timeout=60)
                 except asyncio.TimeoutError:
@@ -964,7 +1001,7 @@ class Economy(commands.Cog):
                 return str(reaction.emoji)
 
             user_input = await buy_reaction_waiter(self)
-            await msg.clear_reactions()
+            await sent_embed.clear_reactions()
             if user_input == '👁':
                 deck = Deck(self, ctx, ctx.author, [], [], card_codes, False, 'rarity_code')
                 await deck.run()
@@ -1492,7 +1529,6 @@ class SlotMachine:
     state_list = [['SLOT IDLE', 0x000000], ['YOU LOST', 0xFF0800], ['SPINNING', 0xFFF700],
                   ['YOU WIN', 0x2EFF00], ['CLOSED', 0x000000]]
     action_emoji_list = ['🕹️', '💰', '⬅', '➡', '🛑']
-    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
 
     def __init__(self, economy, ctx):
         self.economy = economy
@@ -1795,7 +1831,7 @@ class SlotMachine:
                                                                 WHERE discord_uid = $1 ORDER BY "timestamp" DESC LIMIT 1""", self.author.id)
 
         def bonus_val(row):
-            val = SlotMachine.card_bonus_dict.get(row['rarity_code'])
+            val = Economy.card_bonus_dict.get(row['rarity_code'])
             return val
 
         bonus_data = pd.DataFrame(data, columns=columns)
@@ -2067,7 +2103,6 @@ class Shop:
 class Deck:
     deck_action_emoji_list = ['⏪', '◀', '⬆', '👁', '⬇', '▶', '⏩', '🛑']
     card_action_emoji_list = ['↩', '◀', '▶', '🛑']
-    card_bonus_dict = {'S': 1, 'C': 2, 'U': 8, 'R': 20, 'L': 50}
     group_by_key_name_dict = {'affiliation_name': 'Affiliation', 'faction_name': 'Faction', 'rarity_code': 'Rarity', 'set_code': 'Set'}
 
     def __init__(self, economy, ctx, user: discord.Member, affiliation_names: list, rarity_codes: list, card_codes: list, missing: bool, group_by_key: str):
@@ -2267,8 +2302,8 @@ class Deck:
         current_card_dict = self.current_group_dict.get(current_card_code)
         first_acquired = self.user_deck_dict.get(current_card_code).get('first_acquired')
         rarity_name = f"{current_card_dict.get('rarity_name')}"
-        rarity_bonus = Deck.card_bonus_dict.get(current_card_dict.get('rarity_code'))
-        slot_effect = f"+{rarity_bonus}% on {current_card_dict.get('affiliation_name')} slots."
+        rarity_bonus = Economy.card_bonus_dict.get(current_card_dict.get('rarity_code'))
+        slot_effect = f"+{rarity_bonus / 100:.2f}x on {current_card_dict.get('affiliation_name')} slots."
         game_effect = current_card_dict.get('game_effect')
         effect = f'{slot_effect}\n{game_effect}' if game_effect is not None else slot_effect
         position = current_card_dict.get('position')
