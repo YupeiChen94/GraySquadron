@@ -1444,7 +1444,7 @@ class Economy(commands.Cog):
                     user_quantity_strings = []
                     for entry in uid_count_record:
                         member = await ctx.guild.fetch_member(entry['discord_uid'])
-                        user_quantity_strings.append('{} ({}x)'.format(member, entry['count']))
+                        user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
                     if len(user_quantity_strings) == 1:
                         await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
                     else:
