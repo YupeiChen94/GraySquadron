@@ -325,7 +325,7 @@ class Economy(commands.Cog):
         """Information on game"""
         rules = 'Competitive seasonal play where ranking is determined by final Galactic Imperial Points!' \
                 '\nPrizes: 1st - $20, 2nd - $10, 3rd - $5'
-        start = f'Send a message with the keyword "HOPE" in chat for {self.credit_msg_reward} credits every 30 mins from the Rebel Alliance!' \
+        start = f'Send a message with the keyword "HOPE" in chat for {helper.credits_to_string(self.credit_msg_reward)} every 30 mins from the Rebel Alliance!' \
                 '\nCheck out the other game commands with $help Economy'
         road_map = 'Inventory\nRPGAdventure'
         embed = discord.Embed(title='Game?', description='*Season 1: The Beginning*')
@@ -377,7 +377,7 @@ class Economy(commands.Cog):
             await ctx.send(embed=embed)
 
         else:
-            await ctx.send(f'Sorry, a credit lotto combo-pack costs {self.lotto_cost} C.', delete_after=15)
+            await ctx.send(f'Sorry, a credit lotto combo-pack costs {helper.credits_to_string(self.lotto_cost)}.', delete_after=15)
 
     @commands.command()
     async def bal(self, ctx, user: discord.Member = None):
@@ -486,6 +486,8 @@ class Economy(commands.Cog):
         Usage:
         $duel @user amount
 
+        Minimum amount is 100 C.
+
         Example:
         $duel @user 500
         $duel @user 10k
@@ -493,6 +495,10 @@ class Economy(commands.Cog):
         wager = 0
         try:
             wager = helper.parse_amount(amount)
+            if wager < 100:
+                await ctx.send('Invalid argument: Minimum amount is {}!'.format(helper.credits_to_string(100)))
+                return
+
         except ValueError:
             await ctx.send('Invalid argument: {}\nType "$help duel" for more info.'.format(amount))
             return
