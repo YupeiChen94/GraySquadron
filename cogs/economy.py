@@ -2529,8 +2529,9 @@ class DeckStats:
                         for rarity_count in rarity_count_record:
                             deck_value += self.economy.card_rarity_value[rarity_count['rarity_code']] * rarity_count['sum']
 
+                        total = 0 if total_unique_record[0]['total'] is None else total_unique_record[0]['total']
                         # Build global embed
-                        self.pages['Global'] = await self.generate_global_embed(total_unique_record[0]['total'], total_unique_record[0]['unique'], max_unique, deck_value)
+                        self.pages['Global'] = await self.generate_global_embed(total, total_unique_record[0]['unique'], max_unique, deck_value)
                     else:
                         key = self.pages_to_key.get(page)
                         user_total_unique_record = await connection.fetch(
@@ -2585,7 +2586,7 @@ class DeckStats:
         embed.add_field(name='Completion{} '.format(' ✅' if unique == max_unique else ''), 
             value='{:.1f}%\n{:,}/{:,}'.format(unique / max_unique * 100, unique, max_unique), inline=False)
         embed.add_field(name='Deck value', value='{}'.format(helper.credits_to_string_with_exact_value(deck_value, '\n')), inline=False)
-        embed.add_field(name='Average card value', value='{}'.format(helper.credits_to_string_with_exact_value(int(deck_value / total), '\n')), inline=False)
+        embed.add_field(name='Average card value', value='{}'.format(helper.credits_to_string_with_exact_value(int(deck_value / total), '\n') if total > 0 else 'N/D'), inline=False)
         embed.set_footer(text=f'Page 1/{len(self.pages)}')
         return embed        
 
