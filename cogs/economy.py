@@ -2300,15 +2300,20 @@ class Deck:
         """Generate embed that shows specific card"""
         current_card_code = self.current_display_code[self.current_card_idx]
         current_card_dict = self.current_group_dict.get(current_card_code)
+        count = self.user_deck_dict.get(current_card_code).get('count')
+        title = '{}{}'.format(current_card_dict.get('name'), f' ({count}x)' if count > 1 else '')
         first_acquired = self.user_deck_dict.get(current_card_code).get('first_acquired')
         rarity_name = f"{current_card_dict.get('rarity_name')}"
         rarity_bonus = Economy.card_bonus_dict.get(current_card_dict.get('rarity_code'))
-        slot_effect = f"+{rarity_bonus / 100:.2f}x on {current_card_dict.get('affiliation_name')} slots."
+        affiliation_name = current_card_dict.get('affiliation_name')
+        slot_effect = f"+{rarity_bonus / 100:.2f}x on {affiliation_name} slots."
         game_effect = current_card_dict.get('game_effect')
         effect = f'{slot_effect}\n{game_effect}' if game_effect is not None else slot_effect
         position = current_card_dict.get('position')
         set_name = current_card_dict.get('set_name')
         faction_name = current_card_dict.get('faction_name')
+        set_position_string = f"{position} of {set_name}"
+        footer_string = '{}\n{}'.format(current_card_code, set_position_string)
         color = 0x7C8E92
         if faction_name == 'Command':
             color = 0xEA040B
@@ -2317,14 +2322,28 @@ class Deck:
         elif faction_name == 'Force':
             color = 0x3B58FA
         imagesrc = current_card_dict.get('imagesrc')
-        embed = discord.Embed(title=rarity_name, description=effect, colour=color)
+
+        embed = discord.Embed(title=title, description='{}\n{}'.format(rarity_name, effect), colour=color)
         embed.set_image(url=imagesrc)
-        if first_acquired is None:
-            embed.set_footer(
-                text=f"{current_card_code}\n{position} of {set_name}\nYou do not own this card")
+
+        if self.missing:
+            async with self.economy.client.pool.acquire() as connection:
+                async with connection.transaction():
+                    uid_count_record = await connection.fetch(
+                        """SELECT discord_uid, count FROM gray.user_deck
+                        WHERE code = $1 AND count > 0""",
+                        current_card_code)
+
+                    who_has_string = 'Nobody'
+                    if uid_count_record:
+                        user_quantity_strings = []
+                        for entry in uid_count_record:
+                            member = await self.ctx.guild.fetch_member(entry['discord_uid'])
+                            user_quantity_strings.append('{} ({}x)'.format(member.display_name, entry['count']))
+                        who_has_string = '\n'.join(user_quantity_strings)
+                embed.set_footer(text=f'{footer_string}\n\nWho has this card:\n{who_has_string}')
         else:
-            embed.set_footer(
-                text=f"{current_card_code}\n{position} of {set_name}\nFirst Acquired {first_acquired.strftime('%Y-%b-%d %H:%M:%S')}")
+            embed.set_footer(text=footer_string)
         return embed
 
     async def deck_add_reactions(self):
