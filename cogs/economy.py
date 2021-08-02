@@ -302,7 +302,7 @@ class Economy(commands.Cog):
     # Events
     @commands.Cog.listener()
     async def on_ready(self):
-        print('Cog is online.')
+        await helper.bot_log(self.client, 'Cog is online.')
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -455,7 +455,7 @@ class Economy(commands.Cog):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send('You are limited to 1 transfer per 5 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command()
     async def lb(self, ctx):
@@ -478,6 +478,10 @@ class Economy(commands.Cog):
         menu = menus.MenuPages(source=EconomyLB(ctx, value_lb), clear_reactions_after=True)
         await menu.start(ctx)
         await ctx.message.delete()
+
+    @lb.error
+    async def lb_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command()
     @commands.cooldown(rate=1, per=30, type=commands.BucketType.user)
@@ -623,7 +627,7 @@ class Economy(commands.Cog):
                     await self.change_credits(ctx.author.id, (-1 * wager))
                     await self.change_credits(opponent.id, (-1 * wager) + (2 * prize))
                 else:
-                    print('This is not in the result matrix.')
+                    await helper.bot_log(self.client, 'This is not in the result matrix.')
                 await self.change_credits(self.bot_discord_uid, (2 * tax))
                 coin_string1 = f'{one_name}\n{two_name}'
                 coin_string2 = f'{helper.credits_to_string(one_credits_total)} > {helper.credits_to_string(one_credits_total - wager)} -> {helper.credits_to_string(await self.get_credits(ctx.author.id))}' \
@@ -649,7 +653,7 @@ class Economy(commands.Cog):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send('You can only initiate a duel once every 30 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.economy.client, error)
 
     @commands.command(aliases=['slot_stat'])
     @commands.has_any_role('Droid Engineer')
@@ -685,7 +689,7 @@ class Economy(commands.Cog):
         if isinstance(error, commands.MissingAnyRole):
             await ctx.send('You do not have access to this intel.')
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['s', 'slots'])
     # @commands.has_any_role('Droid Engineer')
@@ -700,7 +704,7 @@ class Economy(commands.Cog):
         if isinstance(error, commands.CommandOnCooldown):
             await ctx.send('You can only play the slots once every 30 seconds!', delete_after=5)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['slots_info'])
     async def slot_info(self, ctx):
@@ -818,11 +822,19 @@ class Economy(commands.Cog):
         await asyncio.sleep(30)
         await sent_embed.delete()
 
+    @slot_info.error
+    async def slot_info_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command()
     async def shop(self, ctx):
         """Khajit has wares if you have coin"""
         shop = Shop(self, ctx)
         await shop.run()
+
+    @shop.error
+    async def shop_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command()
     # @commands.has_any_role('Droid Engineer')
@@ -907,42 +919,38 @@ class Economy(commands.Cog):
                 total_cost = item_cost * quantity
 
             _, _, tax_rate = self.credits_tier(user_credit_total)
-            try:
-                # Update item quantity
-                quantity_bought += quantity
-                await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
-                item_category, item_subcategory = await self.get_item_category(item_code)
-                if item_category == 'deck':
-                    card_records, rarity = await self.open_cardpack(item_code, quantity)
-                    for card in card_records:
-                        await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card['code'], 1)
-                        card_codes.append(card['code'])
-                        bonus_dict[card['affiliation_name']] += Economy.card_bonus_dict.get(rarity)
 
-                    item_name = ''
-                    if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
-                        item_name = self.item_code_card_rarity_name_dict[item_code]
-                    elif item_code == 'cpa':
-                        item_name = self.current_affiliation
-                    elif item_code == 'cpf':
-                        item_name = self.current_faction
-                    elif item_code == 'cps':
-                        item_name = self.current_set
+            # Update item quantity
+            quantity_bought += quantity
+            await self.change_shop_item_quantity(discord_uid, item_code, -1 * quantity)
+            item_category, item_subcategory = await self.get_item_category(item_code)
+            if item_category == 'deck':
+                card_records, rarity = await self.open_cardpack(item_code, quantity)
+                for card in card_records:
+                    await self.change_user_item_quantity(discord_uid, item_category, item_subcategory, card['code'], 1)
+                    card_codes.append(card['code'])
+                    bonus_dict[card['affiliation_name']] += Economy.card_bonus_dict.get(rarity)
 
-                    purchase_dict[item_code] = {'count': quantity, 'rarity_code': rarity, 'item_cost': item_cost}
+                item_name = ''
+                if item_code in ['cp1', 'cp2', 'cp3', 'cp4', 'cp5']:
+                    item_name = self.item_code_card_rarity_name_dict[item_code]
+                elif item_code == 'cpa':
+                    item_name = self.current_affiliation
+                elif item_code == 'cpf':
+                    item_name = self.current_faction
+                elif item_code == 'cps':
+                    item_name = self.current_set
 
-            except Exception as e:
-                print(e)
-                return
-            else:
-                # Update credits balances
-                tax_amount = math.floor(total_cost * tax_rate)
-                await self.change_credits(discord_uid, -1 * total_cost)
-                await self.change_credits(self.bot_discord_uid, tax_amount)
-                # TODO: Embed to display what was bought
-                # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
-                # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
-                # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
+                purchase_dict[item_code] = {'count': quantity, 'rarity_code': rarity, 'item_cost': item_cost}
+
+            # Update credits balances
+            tax_amount = math.floor(total_cost * tax_rate)
+            await self.change_credits(discord_uid, -1 * total_cost)
+            await self.change_credits(self.bot_discord_uid, tax_amount)
+            # TODO: Embed to display what was bought
+            # - When you buy a card, show it's bonus (like +2% blablabla) directly in the message instead of having to open and scroll through the deck to find the card
+            # - Show the "value" of the card when browsing the deck (how much it counts on the leaderboard)
+            # - Show a break down of the total fortune used for the leaderboard with the $bal command (like the wallet + 1x 4k for Starters + 17x 15k for Common, etc...)
 
         embed = None
         if quantity_bought > 0:
@@ -1012,7 +1020,7 @@ class Economy(commands.Cog):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send('You must provide the item code! Browse item codes using $shop', delete_after=10)
         else:
-            print(error)
+            await helper.bot_log(self.client, error, ctx.message)
 
     @commands.command(aliases=['card', 'cards'])
     async def deck(self, ctx, *args):
@@ -1089,6 +1097,10 @@ class Economy(commands.Cog):
         user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing, group_by_key)
         await user_deck.run()
 
+    @deck.error
+    async def deck_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command(aliases=['deck_stat'])
     async def deck_stats(self, ctx, user: discord.Member = None):
         """$deck_stats @user"""
@@ -1096,7 +1108,11 @@ class Economy(commands.Cog):
             user = ctx.author
 
         deck_stats = DeckStats(self, ctx, user)
-        await deck_stats.run()        
+        await deck_stats.run()    
+
+    @deck_stats.error
+    async def deck_stats_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)    
 
     @commands.command(aliases=['request_cards', 'transfer_card', 'transfer_cards'])
     async def request_card(self, ctx, *args):
@@ -1267,6 +1283,10 @@ class Economy(commands.Cog):
             else:
                 await ctx.send(f'{user.mention} has rejected the request.')
 
+    @request_card.error
+    async def request_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command(aliases=['send_cards'])
     async def send_card(self, ctx, *args):
         """Send cards to another user. 
@@ -1372,6 +1392,10 @@ class Economy(commands.Cog):
                     else:
                         await ctx.send(f'{ctx.author.mention} has sent {total_cards_sent} cards to {user.mention}!')
 
+    @send_card.error
+    async def send_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
+
     @commands.command(aliases=['who_has'])
     async def who_has_card(self, ctx, card_code: str):
         """List the members who have the specified card in their deck.
@@ -1401,6 +1425,10 @@ class Economy(commands.Cog):
                         await ctx.send('{} has the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
                     else:
                         await ctx.send('{} have the card you\'re looking for!'.format(helper.join_with_and(user_quantity_strings)))
+
+    @who_has_card.error
+    async def who_has_card_error(self, ctx, error):
+        await helper.bot_log(self.client, error, ctx.message)
 
     # Background Tasks
     @tasks.loop(seconds=600, reconnect=True)

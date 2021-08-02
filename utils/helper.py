@@ -212,3 +212,22 @@ def credits_to_string_with_exact_value(amount: int, separator: str = ' ', signif
         return '{}{}({:,} C)'.format(credits_to_string(amount), separator, amount)
     else:
         return '{:,} C'.format(amount)
+
+async def bot_log(client: discord.client, error: str, message: discord.Message = None):
+    # Print the error in the console, then in #bot-log channel if it exists
+    error_message = '{}{}'.format(
+            '{} in #{}: "{}": '.format(
+                message.author.display_name, 
+                message.channel,
+                message.content) if message is not None else '', 
+            error);
+
+    # Console
+    print(error_message)
+
+    # Discord channel
+    channel_name = 'bot-log'
+    guild = client.get_guild(get_config('guild_id'))
+    log_channel = discord.utils.get(guild.text_channels, name=channel_name)
+    if log_channel:
+        await log_channel.send(error_message)
