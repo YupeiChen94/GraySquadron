@@ -1082,15 +1082,11 @@ class Economy(commands.Cog):
         except ValueError as err:
             await ctx.send('{}\nType "$help deck" for more info.'.format(err))
 
-        if missing and card_codes:
-            await ctx.send('Invalid arguments. You can\'t use both "missing" and card codes at the same time.\nType "$help request_card" for more info.')
-            return
-        else:
-            if user is None:
-                user = ctx.author
+        if user is None:
+            user = ctx.author
 
-            user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing, group_by_key)
-            await user_deck.run()
+        user_deck = Deck(self, ctx, user, affiliation_names, rarity_codes, card_codes, missing, group_by_key)
+        await user_deck.run()
 
     @commands.command(aliases=['deck_stat'])
     async def deck_stats(self, ctx, user: discord.Member = None):
@@ -2141,12 +2137,17 @@ class Deck:
         async with self.economy.client.pool.acquire() as connection:
             async with connection.transaction():
                 user_deck_record = None
-                if len(self.card_codes) > 0:
-                    user_deck_record = await connection.fetch(
-                        """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
-                        INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
-                        WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
-                        self.target.id, self.card_codes)
+                if self.card_codes:
+                    if self.missing:
+                        user_deck_record = await connection.fetch(
+                            """SELECT code FROM gray.sw_card_db WHERE code = ANY($1::text[])""",
+                            self.card_codes)
+                    else:
+                        user_deck_record = await connection.fetch(
+                            """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 AND deck.code = ANY($2::text[])""",
+                            self.target.id, self.card_codes)
                 else:
                     user_deck_record = await connection.fetch(
                         """SELECT deck.code, deck.count, first_acquired FROM gray.user_deck AS deck 
@@ -2157,14 +2158,14 @@ class Deck:
                         self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
                         self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list)
 
-                # Get the card codes you don't have
-                if self.missing:
-                    user_deck_record = await connection.fetch(
-                        """SELECT code FROM gray.sw_card_db 
-                        WHERE affiliation_name = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
-                        self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
-                        self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
-                        [card['code'] for card in user_deck_record])
+                    # Get the card codes you don't have
+                    if self.missing:
+                        user_deck_record = await connection.fetch(
+                            """SELECT code FROM gray.sw_card_db 
+                            WHERE affiliation_name = ANY($1::text[]) AND rarity_code = ANY($2::text[]) AND code <> ALL($3::text[])""",
+                            self.affiliation_names if self.affiliation_names else self.economy.affiliation_list, 
+                            self.rarity_codes if self.rarity_codes else self.economy.card_rarity_list,
+                            [card['code'] for card in user_deck_record])
 
                 for card in user_deck_record:
                     card_code = ''
