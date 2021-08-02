@@ -2585,6 +2585,7 @@ class DeckStats:
         embed.add_field(name='Completion{} '.format(' ✅' if unique == max_unique else ''), 
             value='{:.1f}%\n{:,}/{:,}'.format(unique / max_unique * 100, unique, max_unique), inline=False)
         embed.add_field(name='Deck value', value='{}'.format(helper.credits_to_string_with_exact_value(deck_value, '\n')), inline=False)
+        embed.add_field(name='Average card value', value='{}'.format(helper.credits_to_string_with_exact_value(int(deck_value / total), '\n')), inline=False)
         embed.set_footer(text=f'Page 1/{len(self.pages)}')
         return embed        
 
