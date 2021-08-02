@@ -1125,20 +1125,20 @@ class Economy(commands.Cog):
 
                 embed = discord.Embed(title='Deck Stats', description='')
                 embed.set_author(name=user.display_name, icon_url=user.avatar_url)
-                embed.add_field(name='Total', value='{} cards'.format(total_cards), inline=False)
-                embed.add_field(name='Completion', value='{:.1f}% ({}/{})'.format(unique_cards / self.card_count * 100, unique_cards, self.card_count), inline=False)
+                embed.add_field(name='Total', value='{:,} cards'.format(total_cards), inline=False)
+                embed.add_field(name='Completion', value='{:.1f}% ({:,}/{:,})'.format(unique_cards / self.card_count * 100, unique_cards, self.card_count), inline=False)
                 embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
-                embed.add_field(name='Affiliations', value='Heroes: {} ({}/{})\n'
-                                                           'Neutrals: {} ({}/{})\n'
-                                                           'Villains: {} ({}/{})\n'
+                embed.add_field(name='Affiliations', value='Heroes: {:,} ({}/{})\n'
+                                                           'Neutrals: {:,} ({}/{})\n'
+                                                           'Villains: {:,} ({}/{})\n'
                     .format(total_affiliation_dict['Hero'], unique_affiliation_dict['Hero'], self.card_affiliation_count['Hero'],
                     total_affiliation_dict['Neutral'], unique_affiliation_dict['Neutral'], self.card_affiliation_count['Neutral'],
                     total_affiliation_dict['Villain'], unique_affiliation_dict['Villain'], self.card_affiliation_count['Villain']), inline=False)
-                embed.add_field(name='Rarity', value='Starters: {} ({}/{})\n'
-                                                     'Common: {} ({}/{})\n'
-                                                     'Uncommon: {} ({}/{})\n'
-                                                     'Rare: {} ({}/{})\n'
-                                                     'Legendary: {} ({}/{})'
+                embed.add_field(name='Rarity', value='Starters: {:,} ({}/{})\n'
+                                                     'Common: {:,} ({}/{})\n'
+                                                     'Uncommon: {:,} ({}/{})\n'
+                                                     'Rare: {:,} ({}/{})\n'
+                                                     'Legendary: {:,} ({}/{})'
                     .format(total_rarity_dict['S'], unique_rarity_dict['S'], self.card_rarity_count['S'],
                         total_rarity_dict['C'], unique_rarity_dict['C'], self.card_rarity_count['C'],
                         total_rarity_dict['U'], unique_rarity_dict['U'], self.card_rarity_count['U'],
