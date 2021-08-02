@@ -39,11 +39,6 @@ class Economy(commands.Cog):
         self.card_rarity_value = {'S': 4000, 'C': 15000, 'U': 80000, 'R': 400000, 'L': 5000000}
         self.card_pack_type_dict = {'cpa': 'affiliation_name', 'cpf': 'faction_name', 'cps': 'set_name'}
 
-        # Hardcoded stats about the card's deck to avoid unneeded SQL requests. To update if new cards are added
-        self.card_count = 1889
-        self.card_affiliation_count = {'Hero': 615, 'Neutral': 663, 'Villain': 611}
-        self.card_rarity_count = {'S': 449, 'C': 513, 'U': 387, 'R': 387, 'L': 153}
-        
         self.current_affiliation = random.choice(self.affiliation_list)
         self.current_faction = random.choice(self.faction_list)
         self.current_set = random.choice(self.set_list)
@@ -1094,53 +1089,8 @@ class Economy(commands.Cog):
         if user is None:
             user = ctx.author
 
-        async with self.client.pool.acquire() as connection:
-            async with connection.transaction():
-                user_deck_record = await connection.fetch(
-                    """SELECT deck.code, deck.count, cards_db.affiliation_name, cards_db.rarity_code FROM gray.user_deck AS deck 
-                    INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
-                    WHERE deck.discord_uid = $1 AND deck.count > 0""",
-                    user.id)
-
-                total_cards = 0
-                unique_cards = 0
-                deck_value = 0
-                total_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
-                unique_rarity_dict = {'S': 0, 'C': 0, 'U': 0, 'R': 0, 'L': 0}
-                total_affiliation_dict = {'Villain': 0, 'Neutral': 0, 'Hero': 0}
-                unique_affiliation_dict = {'Villain': 0, 'Neutral': 0, 'Hero': 0}
-
-                for card in user_deck_record:
-                    total_cards += card['count']
-                    unique_cards += 1
-                    total_rarity_dict[card['rarity_code']] += card['count']
-                    unique_rarity_dict[card['rarity_code']] += 1
-                    total_affiliation_dict[card['affiliation_name']] += card['count']
-                    unique_affiliation_dict[card['affiliation_name']] += 1
-                    deck_value += self.card_rarity_value[card['rarity_code']] * card['count']
-
-                embed = discord.Embed(title='Deck Stats', description='')
-                embed.set_author(name=user.display_name, icon_url=user.avatar_url)
-                embed.add_field(name='Total', value='{:,} cards'.format(total_cards), inline=False)
-                embed.add_field(name='Completion', value='{:.1f}% ({:,}/{:,})'.format(unique_cards / self.card_count * 100, unique_cards, self.card_count), inline=False)
-                embed.add_field(name='Value', value=f'{helper.credits_to_string(deck_value)}', inline=False)
-                embed.add_field(name='Affiliations', value='Heroes: {:,} ({}/{})\n'
-                                                           'Neutrals: {:,} ({}/{})\n'
-                                                           'Villains: {:,} ({}/{})\n'
-                    .format(total_affiliation_dict['Hero'], unique_affiliation_dict['Hero'], self.card_affiliation_count['Hero'],
-                    total_affiliation_dict['Neutral'], unique_affiliation_dict['Neutral'], self.card_affiliation_count['Neutral'],
-                    total_affiliation_dict['Villain'], unique_affiliation_dict['Villain'], self.card_affiliation_count['Villain']), inline=False)
-                embed.add_field(name='Rarity', value='Starters: {:,} ({}/{})\n'
-                                                     'Common: {:,} ({}/{})\n'
-                                                     'Uncommon: {:,} ({}/{})\n'
-                                                     'Rare: {:,} ({}/{})\n'
-                                                     'Legendary: {:,} ({}/{})'
-                    .format(total_rarity_dict['S'], unique_rarity_dict['S'], self.card_rarity_count['S'],
-                        total_rarity_dict['C'], unique_rarity_dict['C'], self.card_rarity_count['C'],
-                        total_rarity_dict['U'], unique_rarity_dict['U'], self.card_rarity_count['U'],
-                        total_rarity_dict['R'], unique_rarity_dict['R'], self.card_rarity_count['R'],
-                        total_rarity_dict['L'], unique_rarity_dict['L'], self.card_rarity_count['L']), inline=False)
-                await ctx.send(embed=embed)
+        deck_stats = DeckStats(self, ctx, user)
+        await deck_stats.run()        
 
     @commands.command(aliases=['request_cards', 'transfer_card', 'transfer_cards'])
     async def request_card(self, ctx, *args):
@@ -2502,6 +2452,171 @@ class Deck:
         else:
             await self.ctx.send('No cards found.')
 
+
+class DeckStats:
+    emoji_list = ['◀', '▶', '🛑']
+    
+
+    def __init__(self, economy, ctx, user):
+        self.economy = economy
+        self.ctx = ctx
+        self.author = ctx.author
+        self.target = user
+
+        self.pages = {'Global': None, 'Rarity': None, 'Affiliation': None, 'Faction': None, 'Set': None}
+        self.pages_to_key = {'Rarity': 'rarity_name', 'Affiliation': 'affiliation_name', 'Faction': 'faction_name', 'Set': 'set_name'}
+
+        self.current_page_idx = 0  # Index of currently displayed card
+        self.sent_embed = None  # Sent embed to update on emoji reaction
+
+    async def start(self):
+        """Pull info from database"""
+        async with self.economy.client.pool.acquire() as connection:
+            async with connection.transaction():
+                for page in self.pages:
+                    if page == 'Global':
+                        # Get values for global stats
+                        total_unique_record = await connection.fetch(
+                            """SELECT SUM(deck.count) AS total, COUNT(deck.count) AS unique
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0""",
+                            self.target.id)
+                        max_unique = await connection.fetchval(
+                            """SELECT COUNT(*) FROM gray.sw_card_db""")
+                        rarity_count_record = await connection.fetch(
+                            """SELECT cards_db.rarity_code, SUM(deck.count)
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.rarity_code""",
+                            self.target.id)
+
+                        deck_value = 0
+                        for rarity_count in rarity_count_record:
+                            deck_value += self.economy.card_rarity_value[rarity_count['rarity_code']] * rarity_count['sum']
+
+                        # Build global embed
+                        self.pages['Global'] = await self.generate_global_embed(total_unique_record[0]['total'], total_unique_record[0]['unique'], max_unique, deck_value)
+                    else:
+                        key = self.pages_to_key.get(page)
+                        user_total_unique_record = await connection.fetch(
+                            """SELECT cards_db.{0}, SUM(deck.count) AS total, COUNT(deck.code) AS unique
+                            FROM gray.user_deck AS deck 
+                            INNER JOIN gray.sw_card_db AS cards_db on deck.code = cards_db.code 
+                            WHERE deck.discord_uid = $1 AND deck.count > 0 GROUP BY cards_db.{0}""".format(key),
+                            self.target.id)
+                        all_unique_record = await connection.fetch(
+                            """SELECT {0}, COUNT({0}) AS max_unique, MIN(code) AS code, MIN(rarity_code) AS rarity_code 
+                            FROM gray.sw_card_db GROUP BY {0} ORDER BY {1}""".format(key, 'code' if page == 'Set' else key))
+
+                        data = {}
+                        for subcategory in all_unique_record:
+                            total = 0
+                            unique = 0                            
+                            for user_total_unique in user_total_unique_record:
+                                if subcategory[key] == user_total_unique[key]:
+                                    total = user_total_unique['total']
+                                    unique = user_total_unique['unique']                                    
+                                    break
+                            data[subcategory[key]] = {
+                                'total': total, 
+                                'unique': unique, 
+                                'max_unique': subcategory['max_unique'], 
+                                'code': subcategory['code'],
+                                'rarity_code': subcategory['rarity_code']
+                            }
+
+                        # Order the list
+                        sorted_data = {}
+                        if page == 'Rarity':
+                            # By rarity S => C => U => R => L
+                            for rarity_code in self.economy.card_rarity_list:
+                                for subcategory in data:
+                                    if rarity_code == data[subcategory]['rarity_code']:
+                                        sorted_data[subcategory] = data[subcategory]
+                        else:
+                            # Done in SQL command for the other
+                            sorted_data = data
+                       
+                        self.pages[page] = await self.generate_category_embed(page, sorted_data)
+
+                self.sent_embed = await self.ctx.send(embed=self.pages['Global'])
+                for e in DeckStats.emoji_list:
+                    await self.sent_embed.add_reaction(e)
+
+    async def generate_global_embed(self, total: int, unique: int, max_unique: int, deck_value: int) -> discord.Embed:
+        embed = discord.Embed(title='Global Stats', description='', colour=self.ctx.author.colour)
+        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        embed.add_field(name='Total', value='{:,} cards'.format(total), inline=False)
+        embed.add_field(name='Completion{} '.format(' ✅' if unique == max_unique else ''), 
+            value='{:.1f}%\n{:,}/{:,}'.format(unique / max_unique * 100, unique, max_unique), inline=False)
+        embed.add_field(name='Deck value', value='{}'.format(helper.credits_to_string_with_exact_value(deck_value, '\n')), inline=False)
+        embed.set_footer(text=f'Page 1/{len(self.pages)}')
+        return embed        
+
+    async def generate_category_embed(self, title: str, data: dict) -> discord.Embed:
+        embed = discord.Embed(title=title, description='', colour=self.ctx.author.colour)
+        embed.set_author(name=self.target.display_name, icon_url=self.target.avatar_url)
+        for subcategory in data:            
+            total = data.get(subcategory).get('total')
+            unique = data.get(subcategory).get('unique')
+            max_unique = data.get(subcategory).get('max_unique')
+            embed.add_field(name='{}{} '.format(subcategory, ' ✅' if unique == max_unique else ''), 
+                value='{:,} cards\n{:.1f}%\n{:,}/{:,}'.format(
+                total, unique / max_unique * 100, unique, max_unique), inline=True)
+        embed.set_footer(text=f'Page {list(self.pages).index(title) + 1}/{len(self.pages)}')
+        return embed        
+
+    async def deck_stat_reaction_waiter(self) -> str:
+        """Async helper to await for reactions"""
+
+        def check(r, u):
+            # R = Reaction, U = User
+            return u == self.ctx.author \
+                   and str(r.emoji) in DeckStats.emoji_list \
+                   and r.message.id == self.sent_embed.id
+
+        try:
+            reaction, _ = await self.economy.client.wait_for('reaction_add', check=check, timeout=60)
+        except asyncio.TimeoutError:
+            return 'Timeout'
+        return str(reaction.emoji)
+
+    async def previous_page(self):
+        self.current_page_idx = (self.current_page_idx - 1) % len(self.pages)
+
+    async def next_page(self):
+        self.current_page_idx = (self.current_page_idx + 1) % len(self.pages)
+
+    async def open(self):
+        """Open up deck stat embed"""
+        while True:
+            user_input = await self.deck_stat_reaction_waiter()
+            # Previous Page - Loopable
+            if user_input == DeckStats.emoji_list[0]:
+                await self.sent_embed.remove_reaction(user_input, self.author)
+                await self.previous_page()
+                await self.sent_embed.edit(embed=list(self.pages.values())[self.current_page_idx])
+            # Next Page - Loopable
+            elif user_input == DeckStats.emoji_list[1]:
+                await self.sent_embed.remove_reaction(user_input, self.author)
+                await self.next_page()
+                await self.sent_embed.edit(embed=list(self.pages.values())[self.current_page_idx])
+            # No response or STOP
+            else:
+                break
+
+    async def close_out(self):
+        """Close out the deck"""
+        await self.sent_embed.clear_reactions()
+        await asyncio.sleep(30)
+        await self.sent_embed.delete()
+
+    async def run(self):
+        """Entry Point"""
+        await self.start()
+        await self.open()
+        await self.close_out()
 
 class EconomyLB(menus.ListPageSource):
     def __init__(self, ctx, data):
