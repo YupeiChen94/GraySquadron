@@ -1826,9 +1826,15 @@ class SlotMachine:
         self.machine_type_names = cycle(list(self.machine_info_dict.keys()))
 
         # Set the iterator to the selected position
-        while self.selected_machine_name != next(self.machine_type_names):
-            pass
-        
+        machine_found = False
+        for i in range(0, self.machine_count):
+            if self.selected_machine_name == next(self.machine_type_names):
+                machine_found = True
+                break
+
+        if not machine_found:
+            self.selected_machine_name = next(self.machine_type_names)
+
         await self.setup_selected_machine()
         self.player_credits_total = await self.economy.get_credits(self.author.id)
         self.sent_embed = await self.ctx.send(embed=await self.generate_slot_embed())
