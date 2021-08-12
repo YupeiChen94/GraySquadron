@@ -194,7 +194,11 @@ class Admin(commands.Cog):
             await bot_commands_channel.send(
                 f'Nickname for {member.display_name} is too long at {len(after_nick)} characters!')
         else:
-            await member.edit(nick=after_nick)
+            try:
+                await member.edit(nick=after_nick)
+            except:
+                print('Error in update_nick for member:', member.display_name)
+
 
     @commands.command()
     @commands.has_role('Active')
