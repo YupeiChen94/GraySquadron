@@ -501,7 +501,7 @@ class Admin(commands.Cog):
             print(error)
 
     @commands.command()
-    @commands.has_any_role('Droid Engineer', 'Cdt')
+    @commands.has_any_role('Droid Engineer', 'Cadet')
     async def get_mentor(self, ctx, mentee: discord.Member = None):
         """Get mentor for self or specified user"""
         if mentee is None:
