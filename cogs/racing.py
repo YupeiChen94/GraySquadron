@@ -1250,7 +1250,7 @@ class Racing(commands.Cog):
             
     # Commands
     @commands.command()
-    async def race(self, ctx, arg: str = ''):
+    async def race(self, ctx, *, arg: str = ''):
         """Get on the cockpit and join the race!
 
         You can specify the amount of the entry bet as argument.
@@ -1291,10 +1291,9 @@ class Racing(commands.Cog):
                         current_index = idx
                         break
 
-
         if not info_only and not reminder:
             try:
-                entry_bet_credits = helper.parse_amount(arg)
+                entry_bet_credits = helper.parse_amount(arg.replace(' ', ''))
             except ValueError:
                 await ctx.send(f'Invalid argument: {arg}\nType "$help race" for more info.')
                 return
