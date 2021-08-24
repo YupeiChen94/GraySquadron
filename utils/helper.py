@@ -219,7 +219,8 @@ def parse_input_arg_maps(arg) -> int:
 
 def parse_amount(amount: str) -> int:
     """Parses the amount that can be either and integer, or something like "10k", "1.2M", etc..."""
-    amountLowerCase = amount.lower()
+    amountLowerCase = amount.lower().replace('c', '')
+
     exp = 0
     if amountLowerCase.endswith('k'):
         exp = 3
@@ -233,9 +234,9 @@ def parse_amount(amount: str) -> int:
         exp = 15
 
     if exp == 0:
-        return int(amount)
+        return int(amountLowerCase)
     else:
-        return int(float(amount[:len(amount)-1])*10**exp)
+        return int(float(amountLowerCase[:len(amountLowerCase)-1])*10**exp)
 
 def credits_to_string(amount: int, significant_numbers: int = 3) -> str:
     """Returns "XXX'XXX" C if under a million, otherwise "XXX MC" """
